@@ -970,12 +970,14 @@ function clearHover(){
 /* ---------------- редактор ---------------- */
 let editing=null;
 function openTask(t,preset){
-  editing=t||{id:null,title:'',note:'',estimateH:4,priority:preset||'soon',status:'todo',tags:[],assignee:null,startAt:null};
+  const dflt = S.employees.length ? S.employees[S.employees.length-1].id : null;   // «Общая линия»
+  editing=t||{id:null,title:'',note:'',estimateH:4,priority:preset||'soon',status:'todo',tags:[],
+              assignee:dflt,startAt:deadlineAt()};
   $('#tTitle').textContent = t?'Задача':'Новая задача';
   $('#fTitle').value=editing.title; $('#fNote').value=editing.note||'';
   $('#fEst').value=editing.estimateH; $('#fTags').value=(editing.tags||[]).join(', ');
   pickSet('#fPr','p',editing.priority); pickSet('#fStt','s',editing.status);
-  $('#fAss').innerHTML=`<option value="">Пул, без исполнителя</option>`+
+  $('#fAss').innerHTML=`<option value="">Пул, задача пока без линии</option>`+
     S.employees.map(e=>`<option value="${e.id}" ${editing.assignee===e.id?'selected':''}>${esc(e.name)}</option>`).join('');
   fillStart();
   $('#tDel').style.display=t?'':'none';
@@ -984,7 +986,7 @@ function openTask(t,preset){
 function fillStart(){
   const rh=horizonH(), dl=deadlineAt(), est=+$('#fEst').value||1;
   const cur=editing.startAt!==null?Math.round((editing.startAt-dl)/H):null;
-  let o=`<option value="">Не на линии, лежит в пуле</option>`;
+  let o=`<option value="">Сейчас, сразу у красной линии</option>`;
   for(let i=0;i<=Math.max(0,rh-est);i++){
     if(i>336&&i%24) continue; else if(i>72&&i%6) continue;
     o+=`<option value="${i}" ${cur===i?'selected':''}>+${i} ч · ${fmtFull(dl+i*H)}</option>`;
@@ -998,9 +1000,10 @@ function pickSet(sel,a,v){
   });
 }
 function whenTx(){
-  const v=$('#fStart').value, est=+$('#fEst').value||1;
-  if(v===''){ $('#fWhen').textContent='Задача лежит в пуле и во времени не стоит. Перетащи её на линию или выбери начало.'; return; }
-  const s=deadlineAt()+(+v)*H, d=s+est*H;
+  const v=$('#fStart').value, est=+$('#fEst').value||1, ass=$('#fAss').value;
+  $('#fStart').disabled = !ass;
+  if(!ass){ $('#fWhen').textContent='Исполнитель не выбран, поэтому задача ляжет в пул и во времени стоять не будет. Оттуда её можно перетащить на линию.'; return; }
+  const s=v===''?deadlineAt():deadlineAt()+(+v)*H, d=s+est*H;
   $('#fWhen').innerHTML=`Работа с <b>${fmtFull(s)}</b>, дедлайн <b>${fmtFull(d)}</b>. До дедлайна ${fmtShort(d-now())}.`;
 }
 function saveTask(){
@@ -1013,10 +1016,36 @@ function saveTask(){
   t.priority=($$('#fPr button.on')[0]||{dataset:{}}).dataset.p||'soon';
   t.status=($$('#fStt button.on')[0]||{dataset:{}}).dataset.s||'todo';
   const ass=$('#fAss').value, sv=$('#fStart').value;
-  if(sv===''||!ass){ t.assignee=ass||null; t.startAt=null; }
+  if(!ass){ t.assignee=null; t.startAt=null; }                      // в пул только по явному выбору
+  else if(sv===''){ t.assignee=ass; t.startAt=deadlineAt(); }       // на линию, к красной линии
   else { t.assignee=ass; t.startAt=deadlineAt()+(+sv)*H; }
-  if(!editing.id) S.tasks.push(t);
-  editing=null; $('#ovTask').classList.remove('on'); save(); render(); toast('Сохранено');
+  const isNew=!editing.id;
+  if(isNew) S.tasks.push(t);
+  editing=null; $('#ovTask').classList.remove('on'); save();
+  focusTask(t.id);
+  toast(t.startAt===null
+    ? `Задача в пуле, столбик <b>${PRIO[t.priority].t}</b>`
+    : `Задача на линии <b>${getEmp(t.assignee).name}</b>, дедлайн ${fmtFull(dueOf(t))}`);
+}
+// показать задачу там, где она оказалась: доскроллить и мигнуть
+function focusTask(id){
+  ui.sel=id; render();
+  const el=document.querySelector(`[data-task="${id}"]`);
+  if(!el) return;
+  const board=$('#board');
+  if(el.closest('.lane__c')){
+    const r=el.getBoundingClientRect(), b=board.getBoundingClientRect();
+    if(r.left < b.left+NAME_W+12) board.scrollLeft += r.left - b.left - NAME_W - 40;
+    else if(r.right > b.right-12) board.scrollLeft += r.right - b.right + 40;
+    if(r.top < b.top+90) board.scrollTop += r.top - b.top - 110;
+    else if(r.bottom > b.bottom-12) board.scrollTop += r.bottom - b.bottom + 30;
+  } else if(el.closest('.col__body')){
+    if(!ui.poolOpen){ ui.poolOpen=true; $('#tgPool').textContent='Свернуть пул'; render(); }
+    const e2=document.querySelector(`[data-task="${id}"]`);
+    if(e2) e2.scrollIntoView({block:'nearest'});
+  }
+  const fin=document.querySelector(`[data-task="${id}"]`);
+  if(fin && !RM) gsap.fromTo(fin,{scale:.9,opacity:.35},{scale:1,opacity:1,duration:.55,ease:'back.out(2)'});
 }
 function delTask(){
   if(!editing||!editing.id) return;
