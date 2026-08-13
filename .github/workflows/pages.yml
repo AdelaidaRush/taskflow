@@ -1,0 +1,38 @@
+# Публикация TASKFLOW на GitHub Pages.
+# Собирать нечего: это статика, поэтому шага сборки нет, содержимое репозитория
+# отдаётся как артефакт Pages и разворачивается.
+name: Deploy TASKFLOW to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # можно запустить руками из вкладки Actions
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Проверить, что главный файл на месте
+        run: |
+          test -f index.html   || { echo "нет index.html"; exit 1; }
+          test -f gsap.min.js  || { echo "нет gsap.min.js"; exit 1; }
+          echo "ok, размер index.html: $(wc -c < index.html) байт"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
