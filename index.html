@@ -381,6 +381,9 @@ kbd{display:inline-block;padding:2px 6px;border-radius:6px;background:var(--pape
 
   <div class="bar bar--warn" id="warn"><span id="warnTx"></span>
     <button class="btn btn--sm" id="warnAct">Перенести их на сейчас</button></div>
+  <div class="bar bar--info" id="invite"><span id="inviteTx"></span>
+    <button class="btn btn--sm btn--pri" id="inviteYes">Подключиться</button>
+    <button class="btn btn--sm" id="inviteNo">Не сейчас</button></div>
   <div class="bar bar--info" id="shared"><span id="sharedTx"></span>
     <button class="btn btn--sm btn--pri" id="sharedLoad">Загрузить общую</button>
     <button class="btn btn--sm" id="sharedSkip">Оставить мою</button></div>
@@ -462,6 +465,7 @@ kbd{display:inline-block;padding:2px 6px;border-radius:6px;background:var(--pape
         <button class="btn btn--pri" id="sOn">Включить</button>
         <button class="btn" id="sOff">Выключить</button>
       </div>
+      <button class="btn" id="sLink" style="width:100%;margin-top:8px">Скопировать ссылку для команды</button>
       <div class="hint" id="sInfo" style="margin-top:9px"></div>
     </div>
     <div class="hint" style="border-top:1px solid var(--line);padding-top:14px">
@@ -1247,6 +1251,33 @@ function syncStart(){
   syncPull(false);
   sync.timer=setInterval(()=>syncPull(true), 8000);
 }
+// приглашение по ссылке: коллеге достаточно открыть её и нажать одну кнопку
+function inviteFromUrl(){
+  const q=new URLSearchParams(location.search);
+  const u=q.get('sync'); if(!u) return;
+  const k=q.get('key')||'';
+  if(sync.on && sync.url===u && sync.key===k) return;      // уже подключён к этой же доске
+  window.__invite={url:u,key:k};
+  $('#invite').classList.add('on');
+  $('#inviteTx').innerHTML=`Эта ссылка подключает тебя к <b>общей доске команды</b>. После подключения
+    ты будешь видеть задачи коллег, а они твои.`;
+}
+function inviteAccept(){
+  const i=window.__invite; if(!i) return;
+  sync.url=i.url; sync.key=i.key; sync.on=true; sync.rev=0;
+  saveSyncCfg(); syncStart();
+  $('#invite').classList.remove('on');
+  history.replaceState(null,'',location.pathname);          // не таскать пароль в адресной строке
+  toast('Подключено к <b>общей доске команды</b>');
+}
+function teamLink(){
+  if(!sync.url){ toast('Сначала впиши адрес хранилища и включи синхронизацию'); return; }
+  const url=location.origin+location.pathname+'?sync='+encodeURIComponent(sync.url)
+    +(sync.key?'&key='+encodeURIComponent(sync.key):'');
+  navigator.clipboard.writeText(url).then(
+    ()=>toast('Ссылка скопирована. Разошли её команде, им хватит одного клика'),
+    ()=>{ $('#sInfo').textContent=url; toast('Скопировать не вышло, ссылка показана ниже'); });
+}
 async function syncTest(){
   const u=$('#sUrl').value.trim(), k=$('#sKey').value.trim();
   if(!u){ toast('Адрес пустой'); return; }
@@ -1352,6 +1383,10 @@ function bind(){
   });
   // настройки живой синхронизации
   $('#sTest').addEventListener('click',syncTest);
+  $('#sLink').addEventListener('click',teamLink);
+  $('#inviteYes').addEventListener('click',inviteAccept);
+  $('#inviteNo').addEventListener('click',()=>{ $('#invite').classList.remove('on');
+    history.replaceState(null,'',location.pathname); });
   $('#sOn').addEventListener('click',()=>{
     const u=$('#sUrl').value.trim();
     if(!u){ toast('Сначала впиши адрес хранилища'); return; }
@@ -1431,7 +1466,7 @@ tick();
 setInterval(tick,250);
 setInterval(renderClock,1000);
 fetchShared();
-loadSync(); syncStatus(sync.on?'wait':'off'); syncStart();
+loadSync(); syncStatus(sync.on?'wait':'off'); syncStart(); inviteFromUrl();
 
 if(lastSeen){
   const gone=Math.floor((now()-lastSeen)/H);
