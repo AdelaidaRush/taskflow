@@ -582,7 +582,7 @@ function seed(){
     ['Разбор конкурентов по ценам','Пять магазинов, двадцать ходовых позиций, сравнить цену и условия доставки.','week',6,'e5','done',60,['аналитика']]
   ];
   on.forEach(([title,note,priority,estimateH,assignee,status,off,tags])=>st.tasks.push(
-    {id:uid(),title,note,estimateH,priority,status,tags,assignee,startAt:c+off*H,createdAt:c,updatedAt:Date.now()}));
+    {id:uid(),title,note,estimateH,priority,status,tags,assignee,startAt:c+off*H,createdAt:c,updatedAt:Date.now(),demo:true}));
   const pool = [
     ['Написать ТЗ на импорт остатков','Забирать остатки у поставщика раз в час, при расхождении больше 10 штук писать в чат.','soon',5,['бэк']],
     ['Придумать оффер для рассылки','Нужен повод написать базе в конце месяца, скидка уже приелась.','week',3,['маркетинг']],
@@ -591,7 +591,7 @@ function seed(){
     ['Проверить домены на продление','Два домена истекают в следующем месяце, продлить сразу на два года.','soon',1,['инфра']]
   ];
   pool.forEach(([title,note,priority,estimateH,tags])=>st.tasks.push(
-    {id:uid(),title,note,estimateH,priority,status:'todo',tags,assignee:null,startAt:null,createdAt:c,updatedAt:Date.now()}));
+    {id:uid(),title,note,estimateH,priority,status:'todo',tags,assignee:null,startAt:null,createdAt:c,updatedAt:Date.now(),demo:true}));
   return st;
 }
 function save(){
@@ -627,7 +627,7 @@ function undo(){
    часами доски). При слиянии по каждой задаче побеждает более поздняя правка.
    Удаления живут отдельным списком надгробий, иначе удалённая задача
    воскресала бы с чужого компьютера при каждой синхронизации.            */
-function touch(t){ t.updatedAt = Date.now(); return t; }
+function touch(t){ t.updatedAt = Date.now(); delete t.demo; return t; }   // тронул значит уже не демо
 function normalize(st){
   if(!st) return st;
   st.deleted = st.deleted || [];
@@ -644,6 +644,12 @@ function dropTask(id){
   S.deleted = S.deleted.filter(d=>d.at>cut);
 }
 function validBoard(st){ return !!(st && Array.isArray(st.tasks) && Array.isArray(st.employees)); }
+function boardSig(st){
+  if(!validBoard(st)) return '';
+  return st.tasks.filter(t=>!t.demo).map(t=>t.id+':'+(t.updatedAt||0)).sort().join('|')
+    +'#'+(st.deleted||[]).map(d=>d.id+':'+d.at).sort().join('|')
+    +'#'+(st.employeesAt||0)+'#'+(st.settingsAt||0);
+}
 function mergeState(mine, theirs){
   if(!validBoard(theirs)) return mine;      // в хранилище мусор, свою доску не ломаем
   normalize(mine); normalize(theirs);
@@ -655,7 +661,7 @@ function mergeState(mine, theirs){
   });
   const byId = new Map();
   mine.tasks.forEach(t=>byId.set(t.id,t));
-  theirs.tasks.forEach(t=>{
+  theirs.tasks.filter(t=>!t.demo).forEach(t=>{
     const cur = byId.get(t.id);
     if(!cur || (t.updatedAt||0) > (cur.updatedAt||0)) byId.set(t.id,t);
   });
@@ -1198,7 +1204,7 @@ function toast(html){
    Раз в 8 секунд тянем чужие правки, свои отправляем через 1.5 секунды
    после последнего изменения. Слияние по времени правки, см. mergeState.  */
 const SKEY='taskflow.sync';
-const sync={url:'',key:'',on:false,rev:0,busy:false,timer:null,status:'off',err:''};
+const sync={url:'',key:'',on:false,rev:0,busy:false,timer:null,status:'off',err:'',joined:false};
 function loadSync(){
   try{ const c=JSON.parse(localStorage.getItem(SKEY)||'null');
     if(c&&c.url){ sync.url=c.url; sync.key=c.key||''; sync.on=!!c.on; } }catch(e){}
@@ -1224,33 +1230,45 @@ async function syncPull(quiet){
   if(!sync.on||!sync.url||sync.busy) return;
   sync.busy=true; if(!quiet) syncStatus('wait');
   let seedRemote=false;                 // хранилище пустое: залить туда свою доску
+  let catchUp=false;                    // у нас есть своё, чего нет в общей: догнать
   try{
     const r=await fetch(sync.url,{headers:headers(),cache:'no-store'});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d=await r.json();
     if(d && !d.state) seedRemote=true;
-    if(d && validBoard(d.state) && (d.rev||0)!==sync.rev){
-      const before=JSON.stringify(S.tasks.map(t=>t.id+':'+t.updatedAt).sort());
-      S=mergeState(S,d.state); sync.rev=d.rev||0; save(); render();
-      const after=JSON.stringify(S.tasks.map(t=>t.id+':'+t.updatedAt).sort());
-      if(before!==after && !quiet) toast('Доска обновлена из общей');
+    if(d && validBoard(d.state)){
+      const before=boardSig(S);
+      S=mergeState(S,d.state); sync.rev=d.rev||0;
+      // первое подключение к непустой общей доске: демо-задачи убираем,
+      // они локальная заготовка приложения и команде не нужны
+      if(!sync.joined && d.state.tasks.length){
+        const n=S.tasks.filter(t=>t.demo).length;
+        if(n){ S.tasks=S.tasks.filter(t=>!t.demo);
+               setTimeout(()=>toast(`Демо-задачи убраны (${n}), показана общая доска команды`),400); }
+      }
+      sync.joined=true;
+      save(); render();
+      if(before!==boardSig(S) && !quiet) toast('Доска обновлена из общей');
+      // если после слияния у нас есть задачи, которых нет в общей, отправляем их
+      if(boardSig(S)!==boardSig(d.state)) catchUp=true;
     } else if(d) sync.rev=d.rev||sync.rev;
     syncStatus('ok');
   }catch(e){ syncStatus('err','Не читается общая доска: '+e.message); }
   finally{ sync.busy=false; }
-  if(seedRemote) await syncPush();     // первый включивший наполняет общую доску
+  if(seedRemote || catchUp) await syncPush();
 }
 async function syncPush(){
   if(!sync.on||!sync.url||sync.busy) return;
   sync.busy=true; syncStatus('wait');
   try{
+    const payload={...S, tasks:S.tasks.filter(t=>!t.demo)};   // демо-заготовку не публикуем
     let r=await fetch(sync.url,{method:'PUT',headers:headers(),
-      body:JSON.stringify({rev:sync.rev,state:S})});
+      body:JSON.stringify({rev:sync.rev,state:payload})});
     if(r.status===409){                                   // кто-то успел раньше, сливаем и повторяем
       const d=await r.json();
       S=mergeState(S,d.state); sync.rev=d.rev||0; save(); render();
       r=await fetch(sync.url,{method:'PUT',headers:headers(),
-        body:JSON.stringify({rev:sync.rev,state:S})});
+        body:JSON.stringify({rev:sync.rev,state:{...S, tasks:S.tasks.filter(t=>!t.demo)}})});
     }
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d=await r.json(); sync.rev=d.rev||sync.rev;
