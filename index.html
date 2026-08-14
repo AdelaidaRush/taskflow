@@ -1228,12 +1228,16 @@ async function syncPull(quiet){
       S=mergeState(S,d.state); sync.rev=d.rev||0;
       // первое подключение к непустой общей доске: демо-задачи убираем,
       // они локальная заготовка приложения и команде не нужны
-      if(!sync.joined && d.state.tasks.length){
-        const n=S.tasks.filter(t=>t.demo).length;
-        if(n){ S.tasks=S.tasks.filter(t=>!t.demo);
-               setTimeout(()=>toast(`Демо-задачи убраны (${n}), показана общая доска команды`),400); }
+      // «присоединились» считается только когда пришла НЕПУСТАЯ общая доска,
+      // иначе уборка демо пропускалась навсегда после первого пустого ответа
+      if(d.state.tasks.length){
+        if(!sync.joined){
+          const n=S.tasks.filter(t=>t.demo).length;
+          if(n){ S.tasks=S.tasks.filter(t=>!t.demo);
+                 setTimeout(()=>toast(`Демо-задачи убраны (${n}), показана общая доска команды`),400); }
+        }
+        sync.joined=true;
       }
-      sync.joined=true;
       save(); render();
       if(before!==boardSig(S) && !quiet) toast('Доска обновлена из общей');
       // если после слияния у нас есть задачи, которых нет в общей, отправляем их
