@@ -13,7 +13,17 @@
  * Если её не задать, доска будет открыта всем, кто знает адрес.
  */
 
-const kv = await Deno.openKv();
+// База подключается в настройках приложения: Databases -> Attach Database -> Deno KV.
+// Пока она не подключена, приложение всё равно поднимается и внятно об этом говорит,
+// иначе первая сборка падала бы на прогреве с невнятной ошибкой.
+let kv: Deno.Kv | null = null;
+let kvError = "";
+try {
+  kv = await Deno.openKv();
+} catch (e) {
+  kvError = e instanceof Error ? e.message : String(e);
+  console.error("Deno KV не подключён:", kvError);
+}
 const SLOT = ["taskflow", "board"];
 
 const CORS: Record<string, string> = {
@@ -31,6 +41,14 @@ const json = (data: unknown, status = 200) =>
 
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+
+  if (!kv) {
+    return json({
+      error: "Хранилище не подключено. В настройках приложения открой вкладку Databases, " +
+        "нажми Attach Database и подключи базу Deno KV, затем перезапусти сборку. " +
+        "Подробность: " + kvError,
+    }, 503);
+  }
 
   const teamKey = Deno.env.get("TEAM_KEY");
   if (teamKey && request.headers.get("X-Board-Key") !== teamKey) {
