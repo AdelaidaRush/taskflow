@@ -1301,7 +1301,7 @@ function inviteFromUrl(){
 }
 function inviteAccept(){
   const i=window.__invite; if(!i) return;
-  sync.url=i.url; sync.key=i.key; sync.on=true; sync.rev=0;
+  sync.url=i.url; sync.key=i.key; sync.on=true; sync.rev=0; sync.joined=false;
   saveSyncCfg(); syncStart();
   $('#invite').classList.remove('on');
   history.replaceState(null,'',location.pathname);          // не таскать пароль в адресной строке
@@ -1427,13 +1427,13 @@ function bind(){
   $('#sOn').addEventListener('click',()=>{
     const u=$('#sUrl').value.trim();
     if(!u){ toast('Сначала впиши адрес хранилища'); return; }
-    sync.url=u; sync.key=$('#sKey').value.trim(); sync.on=true; sync.rev=0;
+    sync.url=u; sync.key=$('#sKey').value.trim(); sync.on=true; sync.rev=0; sync.joined=false;
     saveSyncCfg(); syncStart();
     $('#sInfo').textContent='Синхронизация включена. Доска подтянет чужие правки в ближайшие секунды.';
     toast('Синхронизация <b>включена</b>');
   });
   $('#sOff').addEventListener('click',()=>{
-    sync.on=false; saveSyncCfg(); clearInterval(sync.timer); syncStatus('off');
+    sync.on=false; sync.joined=false; saveSyncCfg(); clearInterval(sync.timer); syncStatus('off');
     $('#sInfo').textContent='Синхронизация выключена, доска снова только на этом компьютере.';
     toast('Синхронизация выключена');
   });
