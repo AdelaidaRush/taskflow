@@ -630,7 +630,9 @@ function dropTask(id){
   const cut = Date.now() - 30*24*H;                 // надгробия старше месяца не нужны
   S.deleted = S.deleted.filter(d=>d.at>cut);
 }
+function validBoard(st){ return !!(st && Array.isArray(st.tasks) && Array.isArray(st.employees)); }
 function mergeState(mine, theirs){
+  if(!validBoard(theirs)) return mine;      // в хранилище мусор, свою доску не ломаем
   normalize(mine); normalize(theirs);
   const out = {...mine};
   // надгробия объединяем, по каждой задаче берём самое позднее удаление
@@ -1127,7 +1129,7 @@ function delTask(){
 function fetchShared(){
   const url = new URLSearchParams(location.search).get('board') || './board.json';
   fetch(url,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(p=>{
-    if(!p||!p.state||!p.state.tasks) return;
+    if(!p||!validBoard(p.state)) return;
     if(!p.publishedAt) return;              // файл-заготовка, доску ещё не публиковали
     sharedBoard=p;
     if(!localStorage.getItem(KEY)){ applyShared(); return; }
@@ -1214,7 +1216,7 @@ async function syncPull(quiet){
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d=await r.json();
     if(d && !d.state) seedRemote=true;
-    if(d && d.state && (d.rev||0)!==sync.rev){
+    if(d && validBoard(d.state) && (d.rev||0)!==sync.rev){
       const before=JSON.stringify(S.tasks.map(t=>t.id+':'+t.updatedAt).sort());
       S=mergeState(S,d.state); sync.rev=d.rev||0; save(); render();
       const after=JSON.stringify(S.tasks.map(t=>t.id+':'+t.updatedAt).sort());
